@@ -660,7 +660,11 @@ def reply_finally(message):
 # функция одного действия
 def bot_thread():
     while qwe:  # как будто цикл конечный
-        bot.polling(none_stop=False)  # при False есть шанс, что бот остановится безболезнено
+        try:
+            bot.polling(none_stop=False)  # при False есть шанс, что бот остановится безболезнено
+        except BaseException as err:
+            print("Error while bot work. Finish work\n", err)
+            return
 
 
 if __name__ == '__main__':
@@ -697,5 +701,8 @@ if __name__ == '__main__':
                 exec(input())
             except BaseException as e:
                 print(e)
+        if not t.is_alive():
+            c = input("Returning")
+            break
 
 # нужно добавить уведомление о новых запросах посреди ночи
