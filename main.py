@@ -663,8 +663,8 @@ def bot_thread():
         try:
             bot.polling(none_stop=False)  # при False есть шанс, что бот остановится безболезнено
         except BaseException as err:
-            print("Error while bot work. Finish work\n", err)
-            return
+            print("Error while bot work:\n", err)
+            print("Restarting")
 
 
 if __name__ == '__main__':
@@ -702,7 +702,7 @@ if __name__ == '__main__':
             except BaseException as e:
                 print(e)
         if not t.is_alive():
-            c = input("Returning")
+            c = input("Restarting")
             break
 
 # нужно добавить уведомление о новых запросах посреди ночи
