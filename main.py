@@ -14,6 +14,11 @@ begin_url = constants.begin_url + config.domain + constants.basic_path  # нач
 null, false, true = None, False, True  # эти три переменные нужны для нормального парсинга ответа
 
 
+def encrypt_password(password):
+    # Как архивация уничтожением, только шифрование
+    return '*' * len(password)
+
+
 def load_access_key(login_sd):
     # Загружает из списка сотрудников ключ доступа нужного человека
     f = open("emp.db")
@@ -57,6 +62,17 @@ def load_sd_login(tg_login):
     return None
 
 
+def load_sd_login_access_key(access_key):
+    # Выдаёт логин, к которому привязан ботом передаваемый ключ доступа
+    f = open("emp.db")
+    text = f.read()[:-1]
+    f.close()
+    for line in text.splitlines():
+        if line.split()[2] == access_key:
+            return line.split()[0]
+    return None  # Нету такого
+
+
 def get_access_key(login_sd):
     # возвращает рабочий ключ на 10 лет (чтоб наверняка)
     req = requests.post(begin_url + 'exec' + constants.access_key_base + config.access_key,
@@ -79,7 +95,10 @@ def get_comments(uuid_service_call, login_sd):
     # получаем список комментов
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)
+    try:
+        exec('global ll\nll = ' + request.text)
+    except BaseException:
+        return None
     return_list = []
     for com in ll:
         if com['author'] is None:
@@ -97,8 +116,11 @@ def get_responsible(message):
 
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)  # превратили строку в массив
-
+    try:
+        exec('global ll\nll = ' + request.text)  # превратили строку в массив
+    except BaseException:
+        send(message.text, "Оно само поломалось", message.chat.id)
+        return None
     data = []
     uuid = load_emp_uuid_tg(message.from_user.username)
     for request in ll:
@@ -116,13 +138,80 @@ def get_reaction(message):
     # Получили список запросов (с поиском не смог разобраться)
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)  # превратили строку в массив
-
+    try:
+        exec('global ll\nll = ' + request.text)  # превратили строку в массив
+    except BaseException:
+        send(message.text, "Тебе не нужны запросы, требующие реакции", message.chat.id)
+        return None
     data = []
     for request in ll:
         if request['state'] == "registered" and request['responsibleEmployee'] == null:
             data.append([str(request['number']), request['descriptionRTF'], str(request['clientName'])])
     return data  # выделили нужные запросы и запихали в массив
+
+
+def get_request(message):
+    # выдаёт запрос и данным номером
+    log_in, lg_sd, access_key = check_user_for_login(message)
+    if not log_in:
+        return
+    try:
+        num = int(message.text)
+    except ValueError:
+        text = "Что-то пошло не так"  # святая истина
+        send(message.text, text, message.chat.id)  # пишем в спортлото
+        return
+    request = requests.get(begin_url + 'find/serviceCall/' + constants.access_key_base + access_key, verify=True)
+    global ll
+    ll = {}
+    try:
+        exec('global ll\nll = ' + request.text)
+    except BaseException:
+        send(message.text, "Знаешь, мне надоело это всё", message.chat.id)
+    for request in ll:
+        if request['number'] == num:
+            uuid = request['UUID']
+            break
+    else:
+        send(message.text, "Не нашёл такого запроса", message.chat.id)
+        return
+    ll = {}
+    request = requests.get(begin_url + 'get/' + uuid + constants.access_key_base +
+                           access_key)
+    try:
+        exec('global ll\nll = ' + request.text)
+    except BaseException:
+        send(message.text, "Почему сервак возвращает чушь, а мне её переваривать?", message.chat.id)
+    text = 'Тема: ' + ll['shortDescr'] + '\nОписание: ' + extract_text(ll['descriptionRTF']) + '\nДедлайн: ' + \
+           ll['deadLineTime'] + \
+           '\nВремя начала: ' + ll['startTime'] + '\nПроблема массы?: '
+    if ll['massProblem']:
+        text += 'нет'
+    else:
+        text += 'да'
+    comments = get_comments(uuid, lg_sd)
+    if comments is None:
+        text += "\nКомментарии не нужны (на самом деле, просто поссорился с серваком)"
+    else:
+        comments = comments[:3]
+        if len(comments) != 0:
+            text += '\nПоследние комментарии:\n'
+        else:
+            text += '\nA комментариев нет'
+        for com in comments:
+            if com[0] == 'SU':
+                line = 'SU'
+            else:
+                request = requests.get(begin_url + 'get/' + com[0] +
+                                       constants.access_key_base + access_key,
+                                       verify=True)  # получаем
+                try:
+                    exec('global ll\nll = ' + request.text)
+                    line = ll['firstName'] + ' ' + ll['lastName']
+                except BaseException:
+                    line = "Чё? Чё? Кто? Кто это кинул? "
+            text += line + ': ' + com[1] + '\n'
+    send(message.text, text, message.chat.id)
 
 
 def update_emp_uuid():
@@ -149,8 +238,11 @@ def update_emp_uuid():
 
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)  # превратили строку в массив
-
+    try:
+        exec('global ll\nll = ' + request.text)  # превратили строку в массив
+    except BaseException:
+        print("Не люблю обновления и вам советую выдрать F5")
+        return
     for emp in ll:
         try:
             tt = login_list.index(emp['login'])
@@ -187,7 +279,8 @@ def check_login(login, password):
 
 def add_user_data(login_sd, uid, password, tg_login):
     # добавляем инфу о пользователе в свои хранилища. С проверкой на дублирования логина/чата.
-    # Зачем храню пароль? для ФСБ
+    # Зачем храню пароль? для ФСБ. Правда, ключ - полное состояние вселенной в момент шифрации...
+    password = encrypt_password(password)
     f = open('udata.db', 'r')
     text = f.read()[:-1]
     f.close()
@@ -319,32 +412,53 @@ def reply_begin(message):
 def reply_login(message):
     # Сообщает об успешности попытки залогиниться
     data = message.text.split()
+    login, entry = None, False
+    text = ""
     if len(data) == 3:
         ans = check_login(data[1], data[2])
         if ans == 0:  # если всё ОК
             add_user_data(data[1], message.chat.id, data[2], message.from_user.username)
-            text = 'Добро пожаловать, '
-            request = requests.get(begin_url + 'get/' + load_emp_uuid(data[1]) + constants.access_key_base +
-                                   load_access_key(data[1]))
-            global ll
-            ll = {}
-            exec('global ll\nll = ' + request.text)  # об этой комманде уже написано выше
-
-            if ll['firstName'] is None:
-                ll['firstName'] = ''
-            if ll['middleName'] is None:
-                ll['middleName'] = ''
-            if ll['lastName'] is None:
-                ll['lastName'] = ''
-            # Вместо некрасивых None лагоничное отсутствие чего-либо
-            # Именно лаГоничное. Без лагов скучно
-            text += ll['firstName'] + ' ' + ll['middleName'] + ' ' + ll['lastName']
+            entry = True
+            login = data[1]
         elif ans == 1:
             text = 'Неправильный логин/пароль'
         else:
             text = 'Что-то пошло не так'
+    elif len(data) == 2:
+        access_key = data[1]
+        login = load_sd_login_access_key(access_key)
+        if login is None:
+            text = "Нет. Не тот"
+        else:
+            entry = True
+            add_user_data(data[1], message.chat.id, "Я вообще не знаю пароль. Это не пароль. Нормальные системы "
+                                                    "ограничивают длину пароля, а это уже выходит за рамки "
+                                                    "дозволенного. Смекаешь? Нету тут никакого пароля, а просто фигня "
+                                                    "всякая", message.from_user.username)
     else:
-        text = 'Использование: /login <логин> <пароль>'
+        text = 'Использование: /login <логин> <пароль>\nЛибо /login <access-key>'
+
+    if entry:
+        text = 'Добро пожаловать, '
+        request = requests.get(begin_url + 'get/' + load_emp_uuid(login) + constants.access_key_base +
+                               load_access_key(login))
+        global ll
+        ll = {}
+        try:
+            exec('global ll\nll = ' + request.text)  # об этой комманде уже написано выше
+        except:
+            send(message.text, "Короче, " + data[1] + ", Как тебя звать я не понял, но всё равно проходишь",
+                 message.chat.id)
+            return
+        if ll['firstName'] is None:
+            ll['firstName'] = ''
+        if ll['middleName'] is None:
+            ll['middleName'] = ''
+        if ll['lastName'] is None:
+            ll['lastName'] = ''
+        # Вместо некрасивых None лагоничное отсутствие чего-либо
+        # Именно лаГоничное. Без лагов скучно
+        text += ll['firstName'] + ' ' + ll['middleName'] + ' ' + ll['lastName']
     send(message.text, text, message.chat.id)
 
 
@@ -446,7 +560,10 @@ def reply(message):
         return
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)
+    try:
+        exec('global ll\nll = ' + request.text)
+    except BaseException:
+        send(message.text, "У меня обед", message.chat.id)
     for request in ll:
         if request['number'] == num:
             uuid = request['UUID']
@@ -457,18 +574,26 @@ def reply(message):
     # Получили uuid нужного запроса (поиск ниасилил)
 
     text = ''
-    com = get_comments(uuid, lg_sd)[:50]
-    for comment in com:
-        if comment[0] == 'SU':
-            line = 'SU'
-        else:
-            request = requests.get(begin_url + 'get/' + comment[0] +
-                                   constants.access_key_base + access_key,
-                                   verify=True)  # получаем
-            ll = {}
-            exec('global ll\nll = ' + request.text)
-            line = ll['firstName'] + ' ' + ll['lastName']
-        text += line + ': ' + comment[1] + '\n'
+    com = get_comments(uuid, lg_sd)
+    if com is None:
+        text += "\nКомментарии не нужны (на самом деле, просто поссорился с серваком)"
+    else:
+        com = com[:50]
+        text += "Последние 50 комментариев. Нужно ещё? Goto сайт\n"
+        for comment in com:
+            if comment[0] == 'SU':
+                line = 'SU'
+            else:
+                request = requests.get(begin_url + 'get/' + comment[0] +
+                                       constants.access_key_base + access_key,
+                                       verify=True)  # получаем
+                ll = {}
+                try:
+                    exec('global ll\nll = ' + request.text)
+                    line = ll['firstName'] + ' ' + ll['lastName']
+                except BaseException:
+                    line = "В авторстве никто не признаётся"
+            text += line + ': ' + comment[1] + '\n'
     send(message.text, text, message.chat.id)
 
 
@@ -494,7 +619,11 @@ def reply(message):
         return
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)
+    try:
+        exec('global ll\nll = ' + request.text)
+    except BaseException:
+        send(message.text, "Плохой, негодный коммент", message.chat.id)
+        return
     for request in ll:
         if request['number'] == num:
             suuid = request['UUID']  # похоже на суицид
@@ -516,7 +645,9 @@ def reply(message):
 def reply(message):
     # Выдаёт список запросов в ответственности
     text = get_responsible(message)
-    if not text:
+    if text is None:
+        return
+    elif not text:
         send(message.text, 'Вы не имеете в ответственности запросов', message.chat.id)
     else:
         adj_text = '*Описания, содержащие знаки <, >, </ и > могут работать некорректно.\n/raw_responsible для ' \
@@ -529,7 +660,9 @@ def reply(message):
 def reply(message):
     # Выдаёт список запросов в ответственности, без обработки разметки
     text = get_responsible(message)
-    if not text:
+    if text is None:
+        return
+    elif not text:
         send(message.text, 'Вы не имеете в ответственности запросов', message.chat.id)
     else:
         send(message.text, '\n'.join(line[0] + ': ' + line[1] + '\nclient:\n' + line[2] + '\n\n'
@@ -540,7 +673,9 @@ def reply(message):
 def reply(message):
     # Выдаёт список запросов, требующих реакции
     text = get_reaction(message)
-    if not text:
+    if text is None:
+        return
+    elif not text:
         send(message.text, 'Очередь слишком короткая, чтобы её обрабатывать', message.chat.id)
     else:
         adj_text = '*Описания, содержащие знаки <, >, </ и > могут работать некорректно.\n/raw_reaction для ' \
@@ -553,6 +688,8 @@ def reply(message):
 def reply(message):
     # Выдаёт список запросов, требующих реакции, без обработки разметки
     text = get_reaction(message)
+    if text is None:
+        return
     if not text:
         send(message.text, 'Очередь слишком короткая, чтобы её обрабатывать', message.chat.id)
     else:
@@ -580,7 +717,11 @@ def reply(message):
     request = requests.get(begin_url + 'find/serviceCall' + constants.access_key_base + access_key)
     global ll
     ll = []
-    exec('global ll\nll = ' + request.text)
+    try:
+        exec('global ll\nll = ' + request.text)
+    except BaseException:
+        send(message.text, "Ты не готов к этой информации", message.chat.id)
+        return
     for request in ll:
         if request['responsible'] != null and request['responsible']['UUID'] == uuid:
             current_time = datetime.datetime.strptime(request['startTime'], "%Y.%m.%d %H:%M:%S").timestamp()
@@ -598,56 +739,18 @@ def reply(message):
         send(message.text, text, message.chat.id)
 
 
+@bot.message_handler(commands=['request'])
+def reply(message):
+    if len(message.text.split()) == 2:
+        message.text = message.text.split()[1]
+        get_request(message)
+    else:
+        send(message.text, "Не надо так", message.chat.id)
+
+
 @bot.message_handler(content_types=['text'])
 def reply_number(message):
-    # выдаёт запрос и данным номером
-    log_in, lg_sd, access_key = check_user_for_login(message)
-    if not log_in:
-        return
-    try:
-        num = int(message.text)
-    except ValueError:
-        text = "Что-то пошло не так"  # святая истина
-        send(message.text, text, message.chat.id)   # пишем в спортлото
-        return
-    request = requests.get(begin_url + 'find/serviceCall/' + constants.access_key_base + access_key, verify=True)
-    global ll
-    ll = {}
-    exec('global ll\nll = ' + request.text)
-    for request in ll:
-        if request['number'] == num:
-            uuid = request['UUID']
-            break
-    else:
-        send(message.text, "Не нашёл такого запроса", message.chat.id)
-        return
-    ll = {}
-    request = requests.get(begin_url + 'get/' + uuid + constants.access_key_base +
-                           access_key)
-    exec('global ll\nll = ' + request.text)
-    text = 'Тема: ' + ll['shortDescr'] + '\nОписание: ' + extract_text(ll['descriptionRTF']) + '\nДедлайн: ' + \
-           ll['deadLineTime'] + \
-           '\nВремя начала: ' + ll['startTime'] + '\nПроблема массы?: '
-    if ll['massProblem']:
-        text += 'нет'
-    else:
-        text += 'да'
-    comments = get_comments(uuid, lg_sd)[:3]
-    if len(comments) != 0:
-        text += '\nПоследние комментарии:\n'
-    else:
-        text += '\nКомментариев нет'
-    for com in comments:
-        if com[0] == 'SU':
-            line = 'SU'
-        else:
-            request = requests.get(begin_url + 'get/' + com[0] +
-                                   constants.access_key_base + access_key,
-                                   verify=True)  # получаем
-            exec('global ll\nll = ' + request.text)
-            line = ll['firstName'] + ' ' + ll['lastName']
-        text += line + ': ' + com[1] + '\n'
-    send(message.text, text, message.chat.id)
+    get_request(message)
 
 
 # если сообщение не обработалось
@@ -663,8 +766,9 @@ def bot_thread():
         try:
             bot.polling(none_stop=False)  # при False есть шанс, что бот остановится безболезнено
         except BaseException as err:
-            print("Error while bot work:\n", err)
+            print("Error while bot work:\n", err, '\nWith args:\n', err.args)
             print("Restarting")
+            sleep(20)
 
 
 if __name__ == '__main__':
