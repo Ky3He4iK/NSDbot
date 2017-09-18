@@ -19,6 +19,16 @@ def encrypt_password(password):
     return '*' * len(password)
 
 
+def json_parser(raw_json):
+    # Как же без велосипедов?
+    try:
+        ll = []
+        exec('global ll\nll = ' + raw_json)
+        return ll
+    except BaseException:
+        return None
+
+
 def load_access_key(login_sd):
     # Загружает из списка сотрудников ключ доступа нужного человека
     f = open("emp.db")
@@ -93,11 +103,8 @@ def get_comments(uuid_service_call, login_sd):
                            '&func=modules.sdRest.listComments&params=' + uuid_service_call.split('$')[1] + ',user',
                            verify=True)
     # получаем список комментов
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll is None:
         return None
     return_list = []
     for com in ll:
@@ -114,11 +121,8 @@ def get_responsible(message):
         return []
     request = requests.get(begin_url + 'find/serviceCall' + constants.access_key_base + access_key)
 
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)  # превратили строку в массив
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll in None:
         send(message.text, "Оно само поломалось", message.chat.id)
         return None
     data = []
@@ -136,11 +140,8 @@ def get_reaction(message):
         return []
     request = requests.get(begin_url + 'find/serviceCall' + constants.access_key_base + access_key)
     # Получили список запросов (с поиском не смог разобраться)
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)  # превратили строку в массив
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll in None:
         send(message.text, "Тебе не нужны запросы, требующие реакции", message.chat.id)
         return None
     data = []
@@ -162,11 +163,8 @@ def get_request(message):
         send(message.text, text, message.chat.id)  # пишем в спортлото
         return
     request = requests.get(begin_url + 'find/serviceCall/' + constants.access_key_base + access_key, verify=True)
-    global ll
-    ll = {}
-    try:
-        exec('global ll\nll = ' + request.text)
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll is None:
         send(message.text, "Знаешь, мне надоело это всё", message.chat.id)
     for request in ll:
         if request['number'] == num:
@@ -175,13 +173,12 @@ def get_request(message):
     else:
         send(message.text, "Не нашёл такого запроса", message.chat.id)
         return
-    ll = {}
     request = requests.get(begin_url + 'get/' + uuid + constants.access_key_base +
                            access_key)
-    try:
-        exec('global ll\nll = ' + request.text)
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll is None:
         send(message.text, "Почему сервак возвращает чушь, а мне её переваривать?", message.chat.id)
+        return
     text = 'Тема: ' + ll['shortDescr'] + '\nОписание: ' + extract_text(ll['descriptionRTF']) + '\nДедлайн: ' + \
            ll['deadLineTime'] + \
            '\nВремя начала: ' + ll['startTime'] + '\nПроблема массы?: '
@@ -205,11 +202,11 @@ def get_request(message):
                 request = requests.get(begin_url + 'get/' + com[0] +
                                        constants.access_key_base + access_key,
                                        verify=True)  # получаем
-                try:
-                    exec('global ll\nll = ' + request.text)
-                    line = ll['firstName'] + ' ' + ll['lastName']
-                except BaseException:
+                ll = json_parser(request.text)
+                if ll is None:
                     line = "Чё? Чё? Кто? Кто это кинул? "
+                else:
+                    line = ll['firstName'] + ' ' + ll['lastName']
             text += line + ': ' + com[1] + '\n'
     send(message.text, text, message.chat.id)
 
@@ -236,11 +233,8 @@ def update_emp_uuid():
         print('error while update db')
         return
 
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)  # превратили строку в массив
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll is None:
         print("Не люблю обновления и вам советую выдрать F5")
         return
     for emp in ll:
@@ -442,11 +436,8 @@ def reply_login(message):
         text = 'Добро пожаловать, '
         request = requests.get(begin_url + 'get/' + load_emp_uuid(login) + constants.access_key_base +
                                load_access_key(login))
-        global ll
-        ll = {}
-        try:
-            exec('global ll\nll = ' + request.text)  # об этой комманде уже написано выше
-        except:
+        ll = json_parser(request.text)
+        if ll is None:
             send(message.text, "Короче, " + data[1] + ", Как тебя звать я не понял, но всё равно проходишь",
                  message.chat.id)
             return
@@ -558,11 +549,8 @@ def reply(message):
     if request.status_code != 200:
         send(message.text, 'Не найдено взамопонимание с сервером', message.chat.id)
         return
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll in None:
         send(message.text, "У меня обед", message.chat.id)
     for request in ll:
         if request['number'] == num:
@@ -587,12 +575,11 @@ def reply(message):
                 request = requests.get(begin_url + 'get/' + comment[0] +
                                        constants.access_key_base + access_key,
                                        verify=True)  # получаем
-                ll = {}
-                try:
-                    exec('global ll\nll = ' + request.text)
-                    line = ll['firstName'] + ' ' + ll['lastName']
-                except BaseException:
+                ll = json_parser(request.text)
+                if ll in None:
                     line = "В авторстве никто не признаётся"
+                else:
+                    line = ll['firstName'] + ' ' + ll['lastName']
             text += line + ': ' + comment[1] + '\n'
     send(message.text, text, message.chat.id)
 
@@ -617,11 +604,8 @@ def reply(message):
     if request.text == '[]':
         send(message.text, "Сервер вернул пустой ответ", message.chat.id)
         return
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll in None:
         send(message.text, "Плохой, негодный коммент", message.chat.id)
         return
     for request in ll:
@@ -715,11 +699,8 @@ def reply(message):
     rq_list = []
     min_time = datetime.datetime.today().timestamp() - left_time * 3600
     request = requests.get(begin_url + 'find/serviceCall' + constants.access_key_base + access_key)
-    global ll
-    ll = []
-    try:
-        exec('global ll\nll = ' + request.text)
-    except BaseException:
+    ll = json_parser(request.text)
+    if ll in None:
         send(message.text, "Ты не готов к этой информации", message.chat.id)
         return
     for request in ll:
